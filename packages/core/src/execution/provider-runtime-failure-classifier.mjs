@@ -1,0 +1,20 @@
+import { filterSecrets } from '../security/secret-filter.mjs';
+import { quotaObservationFromHeaders, quotaObservationFromText } from '../providers/provider-quota-observation.mjs';
+
+function redact(value,max=2400){const text=filterSecrets(String(value??''),{mode:'redact'}).text??'';return text.trim().slice(0,max);}
+function statusCodeOf(value){for(const candidate of [value?.statusCode,value?.status,value?.response?.status,value?.cause?.statusCode,value?.cause?.status]){const number=Number(candidate);if(Number.isInteger(number)&&number>=100&&number<=599)return number;}const match=String(value?.message??value?.error??'').match(/\b(?:status|http)\s*[:=]?\s*(\d{3})\b/i);return match?Number(match[1]):null;}
+
+export function classifyProviderRuntimeFailure(value={}){
+ const statusCode=statusCodeOf(value),providerMessage=redact([value?.message,value?.error,value?.stdout,value?.stderr].filter(Boolean).join('\n')),text=providerMessage.toLowerCase(),code=String(value?.code??value?.cause?.code??'').toUpperCase();
+ let failureClass='provider_unavailable',scope='execution',retryable=false;
+ if(value?.timedOut===true||code==='ETIMEDOUT'||code==='TIMEOUT'||/\btimeout|timed out/i.test(providerMessage)){failureClass='timeout';scope='provider';retryable=true;}
+ else if(/requires? a newer version|please upgrade|upgrade (?:the )?(?:app|cli|client)|unsupported client version/i.test(providerMessage)){failureClass='client_upgrade_required';scope='provider';}
+ else if(statusCode===429||/rate[ -]?limit|usage[ -]?limit|quota|too many requests/i.test(providerMessage)){failureClass='quota_exhausted';scope='provider';}
+ else if(statusCode===401||/not authenticated|authentication required|authentication failed|login required|please log in|unauthori[sz]ed/i.test(providerMessage)){failureClass='authentication_required';scope='provider';}
+ else if(/ineligibletier|unsupported entitlement|not entitled|subscription required|plan does not include/i.test(providerMessage)){failureClass='entitlement_unavailable';scope='provider';}
+ else if(/model .*not found|unknown model|model .*unavailable|does not support model|unsupported model/i.test(providerMessage)){failureClass='model_unavailable';scope='model';}
+ else if([500,502,503,504].includes(statusCode)||['ECONNREFUSED','ECONNRESET','ENOTFOUND','EAI_AGAIN','EPIPE'].includes(code)||/service unavailable|temporarily unavailable|connection reset|connection refused|network error/i.test(providerMessage)){failureClass='transport_unavailable';scope='provider';retryable=true;}
+ else if(value?.started===false||code==='ENOENT'){failureClass='process_start_failed';scope='provider';retryable=true;}
+ const suppliedObservedAt=value?.observedAt==null?null:Date.parse(String(value.observedAt)),observedAt=Number.isFinite(suppliedObservedAt)?new Date(suppliedObservedAt).toISOString():new Date().toISOString(),providerId=String(value?.providerId??value?.provider??'unknown'),profileId=String(value?.profileId??providerId),headerObservation=quotaObservationFromHeaders({providerId,profileId,headers:value?.headers??value?.response?.headers,status:statusCode,observedAt}),textObservation=failureClass==='quota_exhausted'?quotaObservationFromText({providerId,profileId,text:providerMessage,source:value?.source??'provider_error',observedAt}):null,quotaObservation=headerObservation&&textObservation?Object.freeze({...headerObservation,remaining:headerObservation.remaining??textObservation.remaining,used:headerObservation.used??textObservation.used,hardLimit:headerObservation.hardLimit??textObservation.hardLimit,unit:headerObservation.unit??textObservation.unit,resetAt:headerObservation.resetAt??textObservation.resetAt,resetState:(headerObservation.resetAt??textObservation.resetAt)?'KNOWN':headerObservation.resetState,source:headerObservation.resetAt?headerObservation.source:`${headerObservation.source}+${textObservation.source}`,confidence:Math.max(Number(headerObservation.confidence)||0,Number(textObservation.confidence)||0)}):headerObservation??textObservation;
+ return Object.freeze({failureClass,scope,retryable,statusCode,providerMessage,quotaObservation});
+}

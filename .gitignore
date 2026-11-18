@@ -1,0 +1,34 @@
+runtime/state/**
+runtime/proofs/**
+runtime/logs/**
+runtime/artifacts/**
+runtime/experience/**
+runtime/alpha-0.9-downloads/**
+runtime/alpha-0.9-results/**
+runtime/alpha-0.10-results/**
+runtime/alpha-0.11-results/**
+runtime/alpha-0.12-results/**
+runtime/alpha-0.13-results/**
+runtime/alpha-0.14-results/**
+!runtime/state/.keep
+!runtime/proofs/.keep
+!runtime/logs/.keep
+!runtime/artifacts/.keep
+!runtime/experience/.keep
+.env
+*.local.json
+node_modules/
+
+# Post-2.000 maintenance output is evidence/runtime state, not source.
+# Tracked historical evidence remains tracked; this only prevents new generated noise.
+reports/**
+runtime/alpha015-selfdev-live/**
+runtime/maintenance/**
+runtime/*.stdout.log
+runtime/*.stderr.log
+**/*.bak
+state/worktrees/
+
+# Ignore all newly generated runtime trees; tracked historical evidence is unaffected.
+runtime/**
+runtime-vulkan-first-test/**
